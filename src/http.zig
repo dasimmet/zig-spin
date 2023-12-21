@@ -39,6 +39,7 @@ pub const Error = error{
 
 /// Handler function for the inbound HTTP request trigger.
 pub var HANDLER: *const fn (Request) Response = undefined;
+pub var ALLOCATOR: std.mem.Allocator = std.heap.wasm_allocator;
 
 /// HTTP request.
 pub const Request = struct {
@@ -76,7 +77,7 @@ pub export fn spin_http_handle_http_request(c_req: *C.spin_http_request_t, c_res
         req.body.items.len = c_req.body.val.len;
     }
 
-    req.headers = std.http.Headers.init(std.heap.wasm_allocator);
+    req.headers = std.http.Headers.init(ALLOCATOR);
 
     var c_req_headers: []C.spin_http_tuple2_string_string_t = undefined;
     c_req_headers.ptr = c_req.headers.ptr;
@@ -100,7 +101,7 @@ pub export fn spin_http_handle_http_request(c_req: *C.spin_http_request_t, c_res
     c_res.status = @as(u16, @intFromEnum(res.status));
 
     if (headers_len > 0) {
-        var res_headers = std.heap.wasm_allocator.alloc(C.spin_http_tuple2_string_string_t, headers_len) catch unreachable;
+        var res_headers = ALLOCATOR.alloc(C.spin_http_tuple2_string_string_t, headers_len) catch unreachable;
 
         for (res.headers.list.items, 0..) |header, i| {
             res_headers[i] = C.spin_http_tuple2_string_string_t{
@@ -119,7 +120,7 @@ pub export fn spin_http_handle_http_request(c_req: *C.spin_http_request_t, c_res
     }
 
     if (res.body.items.len > 0) {
-        const body = std.heap.wasm_allocator.alloc(u8, res.body.items.len) catch unreachable;
+        const body = ALLOCATOR.alloc(u8, res.body.items.len) catch unreachable;
         @memcpy(body, res.body.items[0..]);
 
         c_res.body = C.spin_http_option_body_t{ .is_some = true, .val = C.spin_http_body_t{ .ptr = body.ptr, .len = body.len } };
@@ -140,7 +141,7 @@ pub fn send(req: Request) Error!Response {
     if (req.headers.list.items.len > 0) {
         c_req.headers.len = req.headers.list.items.len;
 
-        var c_req_headers = std.heap.wasm_allocator.alloc(C.wasi_outbound_http_tuple2_string_string_t, req.headers.list.items.len) catch unreachable;
+        var c_req_headers = ALLOCATOR.alloc(C.wasi_outbound_http_tuple2_string_string_t, req.headers.list.items.len) catch unreachable;
 
         for (req.headers.list.items, 0..) |req_header, i| {
             c_req_headers[i].f0 = C.wasi_outbound_http_string_t{ .ptr = @constCast(@ptrCast(req_header.name.ptr)), .len = req_header.name.len };
@@ -170,7 +171,7 @@ pub fn send(req: Request) Error!Response {
     }
 
     if (c_res.headers.is_some) {
-        res.headers = std.http.Headers.init(std.heap.wasm_allocator);
+        res.headers = std.http.Headers.init(ALLOCATOR);
         res.headers.append("Content-Type", "text/plain") catch unreachable;
 
         var c_res_headers: []C.wasi_outbound_http_tuple2_string_string_t = undefined;
